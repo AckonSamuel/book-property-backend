@@ -1,1 +1,1 @@
-web: ls -l &&  npm install -g @nestjs/cli && npm install @nestjs/cli --save-dev && npm run build && ls -l dist && npm run start
+web: ls -l && npm i --save-dev @types/luxon && npm i --save-dev @types/express && npm run build && ls -l dist && npm run start
