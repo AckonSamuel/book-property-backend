@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import pool from '../config/db';
-import { z } from 'zod';
 import { DateTime } from 'luxon';
 import { EventEmitter } from 'events';
 import { MeetingSchema } from '../schemas/meetingSchema';
 import { TimeSlot, DayAvailability, UnavailableSlot } from '../types';
+import { convertToUserTimezone } from '../helpers';
 
 const notifier = new EventEmitter();
 
@@ -30,9 +30,52 @@ const sendNotification = (type: string, data: any) => {
     notifier.emit('notification', { type, data });
 };
 
-const convertToUserTimezone = (date: string, time: string, fromZone: string, toZone: string): string => {
-    const dateTime = DateTime.fromFormat(`${date} ${time}`, 'yyyy-MM-dd HH:mm', { zone: fromZone });
-    return dateTime.setZone(toZone).toFormat('HH:mm');
+
+// Helper function to update user schedules
+const updateUserSchedules = async (connection: any, slotObj: any, userIds: string[], operation: 'add' | 'remove') => {
+    for (const userId of userIds) {
+        if (operation === 'add') {
+            const [userScheduleExists]: any = await connection.execute(
+                'SELECT user_id FROM user_schedules WHERE user_id = ?',
+                [userId]
+            );
+
+            if (!userScheduleExists?.[0]) {
+                await connection.execute(
+                    'INSERT INTO user_schedules (user_id, unavailable_slots) VALUES (?, JSON_ARRAY(CAST(? AS JSON)))',
+                    [userId, JSON.stringify(slotObj)]
+                );
+            } else {
+                await connection.execute(
+                    `UPDATE user_schedules 
+                     SET unavailable_slots = COALESCE(
+                         JSON_ARRAY_APPEND(unavailable_slots, '$', CAST(? AS JSON)),
+                         JSON_ARRAY(CAST(? AS JSON))
+                     )
+                     WHERE user_id = ?`,
+                    [JSON.stringify(slotObj), JSON.stringify(slotObj), userId]
+                );
+            }
+        } else {
+            await connection.execute(
+                `UPDATE user_schedules 
+                 SET unavailable_slots = JSON_REMOVE(
+                     unavailable_slots, 
+                     CONCAT('$[', 
+                       JSON_SEARCH(
+                         unavailable_slots, 
+                         'one', 
+                         CAST(? AS JSON),
+                         NULL, 
+                         '$[*]'
+                       ), 
+                     ']')
+                 )
+                 WHERE user_id = ?`,
+                [JSON.stringify(slotObj), userId]
+            );
+        }
+    }
 };
 
 export const createMeeting = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
@@ -76,27 +119,12 @@ export const createMeeting = async (req: Request, res: Response, next: NextFunct
                 slot_id: meeting.slot_id
             };
 
-            const [userScheduleExists]: any = await connection.execute(
-                'SELECT user_id FROM user_schedules WHERE user_id = ?',
-                [meeting.participant]
+            await updateUserSchedules(
+                connection,
+                newUnavailableSlot,
+                [meeting.participant, meeting.user_id],
+                'add'
             );
-
-            if (!userScheduleExists?.[0]) {
-                await connection.execute(
-                    'INSERT INTO user_schedules (user_id, unavailable_slots) VALUES (?, JSON_ARRAY(CAST(? AS JSON)))',
-                    [meeting.participant, JSON.stringify(newUnavailableSlot)]
-                );
-            } else {
-                await connection.execute(
-                    `UPDATE user_schedules 
-                     SET unavailable_slots = COALESCE(
-                         JSON_ARRAY_APPEND(unavailable_slots, '$', CAST(? AS JSON)),
-                         JSON_ARRAY(CAST(? AS JSON))
-                     )
-                     WHERE user_id = ?`,
-                    [JSON.stringify(newUnavailableSlot), JSON.stringify(newUnavailableSlot), meeting.participant]
-                );
-            }
 
             await connection.commit();
 
@@ -104,6 +132,7 @@ export const createMeeting = async (req: Request, res: Response, next: NextFunct
                 meetingId: result.insertId,
                 title: meeting.title,
                 participant: meeting.participant,
+                user_id: meeting.user_id,
                 userStartTime
             });
 
@@ -112,6 +141,7 @@ export const createMeeting = async (req: Request, res: Response, next: NextFunct
                 id: result.insertId,
                 ...meeting,
                 ...slotWithoutId,
+                user_id: meeting.user_id,
                 start_time: userStartTime
             });
 
@@ -121,7 +151,6 @@ export const createMeeting = async (req: Request, res: Response, next: NextFunct
         } finally {
             connection.release();
         }
-
     } catch (error) {
         console.error('Error in createMeeting:', error);
         res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -144,7 +173,7 @@ export const updateMeeting = async (req: Request, res: Response, next: NextFunct
             await connection.beginTransaction();
 
             const [existingMeeting]: any = await connection.execute(
-                'SELECT title, participant, date, slot_id FROM meetings WHERE id = ?',
+                'SELECT title, participant, created_by, date, slot_id FROM meetings WHERE id = ?',
                 [meetingId]
             );
 
@@ -153,7 +182,7 @@ export const updateMeeting = async (req: Request, res: Response, next: NextFunct
                 return;
             }
 
-            const { date: oldDate, slot_id: oldSlotId, participant } = existingMeeting[0];
+            const { date: oldDate, slot_id: oldSlotId, participant, created_by } = existingMeeting[0];
 
             const [conflicts]: any = await connection.execute(
                 'SELECT id FROM meetings WHERE id != ? AND date = ? AND slot_id = ? AND (participant = ? OR created_by = ?)',
@@ -177,41 +206,30 @@ export const updateMeeting = async (req: Request, res: Response, next: NextFunct
                 [meeting.title, meeting.date, meeting.slot_id, slot.start_time, slot.end_time, slot.duration, meeting.timezone, meeting.description, meetingId]
             );
 
-            // Remove old slot from unavailable slots
+            // Remove old slot from both users' schedules
             const oldSlotObj = {
                 date: oldDate,
                 slot_id: oldSlotId
             };
 
-            await connection.execute(
-                `UPDATE user_schedules 
-                 SET unavailable_slots = JSON_REMOVE(
-                     unavailable_slots, 
-                     CONCAT('$[', 
-                       JSON_SEARCH(
-                         unavailable_slots, 
-                         'one', 
-                         CAST(? AS JSON),
-                         NULL, 
-                         '$[*]'
-                       ), 
-                     ']')
-                 )
-                 WHERE user_id = ?`,
-                [JSON.stringify(oldSlotObj), participant]
+            await updateUserSchedules(
+                connection,
+                oldSlotObj,
+                [participant, created_by],
+                'remove'
             );
 
-            // Add new slot to unavailable slots
+            // Add new slot to both users' schedules
             const newSlotObj = {
                 date: meeting.date,
                 slot_id: meeting.slot_id
             };
 
-            await connection.execute(
-                `UPDATE user_schedules 
-                 SET unavailable_slots = JSON_ARRAY_APPEND(unavailable_slots, '$', CAST(? AS JSON))
-                 WHERE user_id = ?`,
-                [JSON.stringify(newSlotObj), participant]
+            await updateUserSchedules(
+                connection,
+                newSlotObj,
+                [participant, created_by],
+                'add'
             );
 
             await connection.commit();
@@ -251,7 +269,7 @@ export const deleteMeeting = async (req: Request, res: Response, next: NextFunct
             await connection.beginTransaction();
 
             const [meeting]: any = await connection.execute(
-                'SELECT title, participant, date, slot_id FROM meetings WHERE id = ?',
+                'SELECT title, participant, created_by, date, slot_id FROM meetings WHERE id = ?',
                 [meetingId]
             );
 
@@ -260,7 +278,7 @@ export const deleteMeeting = async (req: Request, res: Response, next: NextFunct
                 return;
             }
 
-            const { date, slot_id, participant } = meeting[0];
+            const { date, slot_id, participant, created_by } = meeting[0];
 
             await connection.execute('DELETE FROM meetings WHERE id = ?', [meetingId]);
 
@@ -269,22 +287,11 @@ export const deleteMeeting = async (req: Request, res: Response, next: NextFunct
                 slot_id
             };
 
-            await connection.execute(
-                `UPDATE user_schedules 
-                 SET unavailable_slots = JSON_REMOVE(
-                     unavailable_slots, 
-                     CONCAT('$[', 
-                       JSON_SEARCH(
-                         unavailable_slots, 
-                         'one', 
-                         CAST(? AS JSON),
-                         NULL, 
-                         '$[*]'
-                       ), 
-                     ']')
-                 )
-                 WHERE user_id = ?`,
-                [JSON.stringify(slotObj), participant]
+            await updateUserSchedules(
+                connection,
+                slotObj,
+                [participant, created_by],
+                'remove'
             );
 
             await connection.commit();
