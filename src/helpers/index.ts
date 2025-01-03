@@ -1,8 +1,57 @@
 import { DateTime } from 'luxon';
 
-const convertToUserTimezone = (date: string, time: string, fromZone: string, toZone: string): string => {
-    const dateTime = DateTime.fromFormat(`${date} ${time}`, 'yyyy-MM-dd HH:mm', { zone: fromZone });
-    return dateTime.setZone(toZone).toFormat('HH:mm');
+/**
+ * Converts a datetime from one timezone to another
+ * @param date - Date object or ISO string
+ * @param time - Time string in 24-hour format (HH:mm:ss)
+ * @param fromZone - Source timezone (IANA timezone identifier)
+ * @param toZone - Target timezone (IANA timezone identifier)
+ * @returns Formatted time string in target timezone (HH:mm) or error message
+ */
+const convertToUserTimezone = (
+    date: Date | string,
+    time: string,
+    fromZone: string,
+    toZone: string
+): string => {
+    try {
+        console.log('Converting:', date, time, fromZone, toZone);
+
+        // Handle Date object or ISO string
+        const baseDate = date instanceof Date 
+            ? DateTime.fromJSDate(date, { zone: fromZone })
+            : DateTime.fromISO(date, { zone: fromZone });
+
+        if (!baseDate.isValid) {
+            throw new Error(`Invalid date: ${date}`);
+        }
+
+        // Parse the time components
+        const [hours, minutes, seconds] = time.split(':').map(Number);
+        
+        // Set the time components on the base date
+        const dateTime = baseDate.set({
+            hour: hours,
+            minute: minutes,
+            second: seconds || 0
+        });
+
+        if (!dateTime.isValid) {
+            throw new Error(`Invalid time: ${time}`);
+        }
+
+        // Convert to target timezone and format the output
+        const convertedTime = dateTime.setZone(toZone);
+        
+        if (!convertedTime.isValid) {
+            throw new Error('Conversion failed');
+        }
+
+        return convertedTime.toFormat('HH:mm');
+    } catch (error) {
+        console.error('Time conversion error:', error);
+        return error instanceof Error ? error.message : 'Invalid DateTime';
+    }
 };
 
-export { convertToUserTimezone }
+export { convertToUserTimezone };
