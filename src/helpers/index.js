@@ -9,11 +9,11 @@ import { DateTime } from 'luxon';
  * @returns Formatted time string in target timezone (HH:mm) or error message
  */
 const convertToUserTimezone = (
-    date: Date | string,
-    time: string,
-    fromZone: string,
-    toZone: string
-): string => {
+    date,
+    time,
+    fromZone,
+    toZone
+) => {
     try {
         console.log('Converting:', date, time, fromZone, toZone);
 

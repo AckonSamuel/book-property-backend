@@ -3,9 +3,9 @@ import pool from '../config/db';
 import { DateTime } from 'luxon';
 import { convertToUserTimezone } from '../helpers';
 
-export const getAllUsers = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+export const getAllUsers = async (req, res, next) => {
     try {
-        const [users]: any = await pool.execute(
+        const [users] = await pool.execute(
             'SELECT user_id, available_days, work_hours FROM user_schedules'
         );
 
@@ -16,13 +16,13 @@ export const getAllUsers = async (req: Request, res: Response, next: NextFunctio
     }
 };
 
-export const getUserMeetings = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+export const getUserMeetings = async (req, res, next) => {
     try {
         const userId = req.params.userId;
-        const startDate = req.query.start_date as string || DateTime.now().toISODate();
-        const endDate = req.query.end_date as string || DateTime.now().plus({ days: 30 }).toISODate();
+        const startDate = req.query.start_date  || DateTime.now().toISODate();
+        const endDate = req.query.end_date  || DateTime.now().plus({ days: 30 }).toISODate();
 
-        const [meetings]: any = await pool.execute(
+        const [meetings] = await pool.execute(
             `SELECT 
                 m.*,
                 CASE 
@@ -37,7 +37,7 @@ export const getUserMeetings = async (req: Request, res: Response, next: NextFun
         );
 
         res.json({ 
-            meetings: meetings.map((meeting: any) => ({
+            meetings: meetings.map((meeting) => ({
                 ...meeting,
                 start_time: convertToUserTimezone(
                     meeting.date,

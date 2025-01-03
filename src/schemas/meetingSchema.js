@@ -9,5 +9,3 @@ export const MeetingSchema = z.object({
     timezone: z.string(),
     description: z.string().optional()
 });
-
-export type Meeting = z.infer<typeof MeetingSchema>;

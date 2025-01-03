@@ -8,7 +8,7 @@ import { convertToUserTimezone } from '../helpers';
 
 const notifier = new EventEmitter();
 
-const PREDEFINED_SLOTS: TimeSlot[] = [
+const PREDEFINED_SLOTS = [
     { id: 1, start_time: '09:00', end_time: '09:30', duration: 30 },
     { id: 2, start_time: '09:30', end_time: '10:00', duration: 30 },
     { id: 3, start_time: '10:00', end_time: '10:30', duration: 30 },
@@ -25,17 +25,17 @@ const PREDEFINED_SLOTS: TimeSlot[] = [
     { id: 14, start_time: '16:30', end_time: '17:00', duration: 30 }
 ];
 
-const sendNotification = (type: string, data: any) => {
+const sendNotification = (type, data) => {
     console.log(`[NOTIFICATION] ${type}:`, data);
     notifier.emit('notification', { type, data });
 };
 
 
 // Helper function to update user schedules
-const updateUserSchedules = async (connection: any, slotObj: any, userIds: string[], operation: 'add' | 'remove') => {
+const updateUserSchedules = async (connection, slotObj, userIds, operation) => {
     for (const userId of userIds) {
         if (operation === 'add') {
-            const [userScheduleExists]: any = await connection.execute(
+            const [userScheduleExists] = await connection.execute(
                 'SELECT user_id FROM user_schedules WHERE user_id = ?',
                 [userId]
             );
@@ -78,7 +78,7 @@ const updateUserSchedules = async (connection: any, slotObj: any, userIds: strin
     }
 };
 
-export const createMeeting = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+export const createMeeting = async (req, res, next) => {
     try {
         const meeting = MeetingSchema.parse(req.body);
         const slot = PREDEFINED_SLOTS.find(s => s.id === meeting.slot_id);
@@ -88,7 +88,7 @@ export const createMeeting = async (req: Request, res: Response, next: NextFunct
             return;
         }
 
-        const [conflicts]: any = await pool.execute(
+        const [conflicts] = await pool.execute(
             'SELECT id FROM meetings WHERE date = ? AND slot_id = ? AND (participant = ? OR created_by = ?)',
             [meeting.date, meeting.slot_id, meeting.participant, meeting.user_id]
         );
@@ -109,7 +109,7 @@ export const createMeeting = async (req: Request, res: Response, next: NextFunct
         try {
             await connection.beginTransaction();
 
-            const [result]: any = await connection.execute(
+            const [result] = await connection.execute(
                 'INSERT INTO meetings (title, date, slot_id, start_time, end_time, duration, participant, created_by, timezone, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [meeting.title, meeting.date, meeting.slot_id, slot.start_time, slot.end_time, slot.duration, meeting.participant, meeting.user_id, meeting.timezone, meeting.description]
             );
@@ -157,7 +157,7 @@ export const createMeeting = async (req: Request, res: Response, next: NextFunct
     }
 };
 
-export const updateMeeting = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+export const updateMeeting = async (req, res, next) => {
     try {
         const meetingId = req.params.meetingId;
         const meeting = MeetingSchema.parse(req.body);
@@ -172,7 +172,7 @@ export const updateMeeting = async (req: Request, res: Response, next: NextFunct
         try {
             await connection.beginTransaction();
 
-            const [existingMeeting]: any = await connection.execute(
+            const [existingMeeting] = await connection.execute(
                 'SELECT title, participant, created_by, date, slot_id FROM meetings WHERE id = ?',
                 [meetingId]
             );
@@ -184,7 +184,7 @@ export const updateMeeting = async (req: Request, res: Response, next: NextFunct
 
             const { date: oldDate, slot_id: oldSlotId, participant, created_by } = existingMeeting[0];
 
-            const [conflicts]: any = await connection.execute(
+            const [conflicts] = await connection.execute(
                 'SELECT id FROM meetings WHERE id != ? AND date = ? AND slot_id = ? AND (participant = ? OR created_by = ?)',
                 [meetingId, meeting.date, meeting.slot_id, meeting.participant, meeting.user_id]
             );
@@ -260,7 +260,7 @@ export const updateMeeting = async (req: Request, res: Response, next: NextFunct
     }
 };
 
-export const deleteMeeting = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+export const deleteMeeting = async (req, res, next) => {
     try {
         const meetingId = req.params.meetingId;
         const connection = await pool.getConnection();
@@ -268,7 +268,7 @@ export const deleteMeeting = async (req: Request, res: Response, next: NextFunct
         try {
             await connection.beginTransaction();
 
-            const [meeting]: any = await connection.execute(
+            const [meeting] = await connection.execute(
                 'SELECT title, participant, created_by, date, slot_id FROM meetings WHERE id = ?',
                 [meetingId]
             );
@@ -317,7 +317,7 @@ export const deleteMeeting = async (req: Request, res: Response, next: NextFunct
     }
 };
 
-export const getAvailableSlots = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+export const getAvailableSlots = async (req, res, next) => {
     try {
         const userId = req.params.userId;
 
@@ -326,11 +326,11 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
             return;
         }
 
-        const startDate = req.query.start_date as string || DateTime.now().toISODate();
-        const endDate = req.query.end_date as string || DateTime.now().plus({ days: 30 }).toISODate();
-        const timezone = req.query.timezone as string || 'UTC';
+        const startDate = req.query.start_date  || DateTime.now().toISODate();
+        const endDate = req.query.end_date  || DateTime.now().plus({ days: 30 }).toISODate();
+        const timezone = req.query.timezone  || 'UTC';
 
-        const [userSchedule]: any = await pool.execute(
+        const [userSchedule] = await pool.execute(
             'SELECT available_days, work_hours, unavailable_slots FROM user_schedules WHERE user_id = ?',
             [userId]
         );
@@ -340,20 +340,20 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
             return;
         }
 
-        const [bookedSlots]: any = await pool.execute(
+        const [bookedSlots] = await pool.execute(
             'SELECT date, slot_id FROM meetings WHERE participant = ? OR created_by = ?',
             [userId, userId]
         );
 
-        const availability: DayAvailability[] = [];
+        const availability = [];
         let currentDate = DateTime.fromISO(startDate);
         const end = DateTime.fromISO(endDate);
 
-        const userUnavailableSlots: UnavailableSlot[] = Array.isArray(userSchedule[0].unavailable_slots) 
+        const userUnavailableSlots = Array.isArray(userSchedule[0].unavailable_slots) 
             ? userSchedule[0].unavailable_slots 
             : [];
 
-        const isSlotUnavailable = (date: string, slotId: number) => {
+        const isSlotUnavailable = (date, slotId) => {
             return userUnavailableSlots.some(unavailable => 
                 unavailable.date === date && unavailable.slot_id === slotId
             );
@@ -364,8 +364,8 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
             const isAvailableDay = userSchedule[0].available_days?.includes(currentDate.weekday);
 
             if (isAvailableDay) {
-                const dayBookings = bookedSlots.filter((booking: any) => booking.date === dateStr);
-                const bookedSlotIds = dayBookings.map((booking: any) => booking.slot_id);
+                const dayBookings = bookedSlots.filter((booking) => booking.date === dateStr);
+                const bookedSlotIds = dayBookings.map((booking) => booking.slot_id);
 
                 const availableSlots = PREDEFINED_SLOTS
                     .filter(slot => {

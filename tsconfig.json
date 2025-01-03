@@ -10,6 +10,6 @@
     "resolveJsonModule": true,
     "typeRoots": ["./node_modules/@types", "./src/types"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "", "src/config/db.js", "src/config/swagger.js", "src/controllers/meetingController.js", "src/controllers/userController.js", "src/routes/meetingRoutes.js", "src/helpers/index.js", "src/middlewares/errorHandler.js", "src/app.js", "src/server.js", "src/utils/env.js", "src/schemas/meetingSchema.js"],
   "exclude": ["node_modules"]
 }
