@@ -1,1 +1,1 @@
-web: ls -l && npm i --save-dev @types/luxon && npm i --save-dev @types/express && npm run build && ls -l dist && npm run start
+web: npm start
